@@ -43,3 +43,6 @@ pnpm-debug.log*
 *.local
 !.gitkeep
 .svn
+
+# Java backend build output
+/java/target/

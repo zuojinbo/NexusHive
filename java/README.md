@@ -61,7 +61,9 @@ PHP 源码里的 ZLM / MQTT 默认地址和口令没有复制到 Java。
 ```bash
 # 容器示例：mysql:5.7，库名 flysee，root 密码与上面的默认值一致
 mysql -uroot -pStrongRootPwd!123 flysee < /path/to/local-dump.sql
-# dump 若缺少 Gitee 新增的 6 张表，只补建缺失表，不要整份执行 schema.sql
+# 2025-12 dump 没有 Gitee 后来的 6 张表和设备 RTMP 字段。只补这一份，不要执行 schema.sql。
+mysql -uroot -pStrongRootPwd!123 flysee < src/main/resources/db/gitee-delta.sql
+# 演示登录：把 admin 密码改成 README 中的 bcrypt。原始 dump 里的哈希不要提交。
 bash scripts/smoke.sh
 ```
 

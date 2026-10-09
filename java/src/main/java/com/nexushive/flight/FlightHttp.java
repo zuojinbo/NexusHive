@@ -243,13 +243,35 @@ public class FlightHttp {
         int count = num(body.get("media_count"));
         if (body.get("media_count") == null || count < 0) throw new ApiException("媒体数量参数无效");
         long now = Instant.now().getEpochSecond();
-        if (count > num(task.get("media_now"))) {
-            crud.jdbc().update("UPDATE `" + props.table("flighttask") + "` SET media_total=?, media_now=?, update_time=? WHERE id=?",
-                    count, count, now, task.get("id"));
-            return Map.of("id", task.get("id"), "media_total", count, "media_now", count, "synced", true, "update_time", now);
+        Map<String, Object> patch = new LinkedHashMap<>();
+        patch.put("media_total", count);
+        patch.put("update_time", now);
+        boolean synced = count > num(task.get("media_now"));
+        if (synced) patch.put("media_now", count);
+        if (body.get("photo_count") != null && crud.meta().hasColumn("flighttask", "photo_count")) {
+            patch.put("photo_count", body.get("photo_count"));
         }
-        crud.jdbc().update("UPDATE `" + props.table("flighttask") + "` SET media_total=?, update_time=? WHERE id=?", count, now, task.get("id"));
-        return Map.of("id", task.get("id"), "media_total", count, "update_time", now);
+        if (body.get("video_count") != null && crud.meta().hasColumn("flighttask", "video_count")) {
+            patch.put("video_count", body.get("video_count"));
+        }
+        StringBuilder set = new StringBuilder();
+        List<Object> args = new ArrayList<>();
+        for (Map.Entry<String, Object> entry : patch.entrySet()) {
+            if (!set.isEmpty()) set.append(',');
+            set.append('`').append(entry.getKey()).append("`=?");
+            args.add(entry.getValue());
+        }
+        args.add(task.get("id"));
+        crud.jdbc().update("UPDATE `" + props.table("flighttask") + "` SET " + set + " WHERE id=?", args.toArray());
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", task.get("id"));
+        out.put("media_total", count);
+        out.put("update_time", now);
+        if (synced) {
+            out.put("media_now", count);
+            out.put("synced", true);
+        }
+        return out;
     }
 
     public Map<String, Object> completeManual(Map<String, Object> body) {

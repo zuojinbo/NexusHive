@@ -2,8 +2,6 @@
 /vendor
 /modules
 /public/*.lock
-/public/index.html
-/public/assets
 
 # 通过 Git 部署项目至线上时可以考虑删除的忽略规则
 /public/storage/*
@@ -45,3 +43,6 @@ pnpm-debug.log*
 *.local
 !.gitkeep
 .svn
+
+# Java backend build output
+/java/target/

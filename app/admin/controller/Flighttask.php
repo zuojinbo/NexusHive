@@ -84,13 +84,44 @@ class Flighttask extends Backend
             if ($this->dataLimit && $this->dataLimitFieldAutoFill) {
                 $data[$this->dataLimitField] = $this->auth->id;
             }
-            $wayline = ModelAirline::find($data['airline_id'])->toArray();
-            if (!$wayline) {
-                $this->error('下发失败,未查询到对应航线！');
+            
+            // 判断飞行模式
+            $isManualFlight = isset($data['flight_mode']) && $data['flight_mode'] == 'manual';
+            $isRepeatTask = isset($data['task_type']) && $data['task_type'] == '2';
+            
+            // ⚠️ 调试日志：记录手动飞行任务的关键参数
+            if ($isManualFlight) {
+                \think\facade\Log::info('【手动飞行任务创建】接收到的参数', [
+                    'equipment_id' => $data['equipment_id'] ?? 'null',
+                    'airline_id' => $data['airline_id'] ?? 'null',
+                    'task_name' => $data['name'] ?? 'null',
+                    'flight_mode' => $data['flight_mode'] ?? 'null',
+                    'task_type' => $data['task_type'] ?? 'null',
+                    'all_data_keys' => array_keys($data)
+                ]);
             }
+            
+            // 航线飞行需要航线信息
+            if (!$isManualFlight && !$isRepeatTask) {
+                $wayline = ModelAirline::find($data['airline_id'])->toArray();
+                if (!$wayline) {
+                    $this->error('下发失败,未查询到对应航线！');
+                }
+                $data['file_url'] = $wayline['kmz'];
+                $data['total_point'] = $wayline['point_num'];
+            } elseif (!$isManualFlight && $isRepeatTask && !empty($data['airline_id'])) {
+                // 循环任务也需要航线信息
+                $wayline = ModelAirline::find($data['airline_id'])->toArray();
+                if (!$wayline) {
+                    $this->error('循环航线任务需要有效的航线！');
+                }
+                $data['file_url'] = $wayline['kmz'];
+                $data['total_point'] = $wayline['point_num'];
+            }
+            
             $result = false;
             $this->model->startTrans();
-            try {
+            // try {
                 // 模型验证
                 if ($this->modelValidate) {
                     $validate = str_replace("\\model\\", "\\validate\\", get_class($this->model));
@@ -100,36 +131,473 @@ class Flighttask extends Backend
                         $validate->check($data);
                     }
                 }
+                
                 $data['bid'] = uuid();
                 $data['tid'] = uuid();
                 $data['admin_id'] = $admin->id;
-                $data['file_url'] = $wayline['kmz'];
-                $data['total_point'] = $wayline['point_num'];
-                $data['status'] = 'sent';
-                if($data['task_type'] < 1){
-                    $data['execute_time'] = time();
+                // 清理空字符串的execute_time（避免数据库报错）
+                if (isset($data['execute_time']) && $data['execute_time'] === '') {
+                    unset($data['execute_time']);
                 }
-                $res = $airline->pushTask($data);
-                $result = $this->model->save($data);
-                if($result){
+                
+                // === 分支1: 循环任务 ===
+                if ($isRepeatTask) {
+                    // 处理循环配置
+                    if (isset($data['repeat_config']) && is_array($data['repeat_config'])) {
+                        $data['repeat_config'] = json_encode($data['repeat_config']);
+                    }
+                    
+                    $data['status'] = 'paused'; // 循环任务状态为等待调度
+                    $result = $this->model->save($data);
+                    if($result){
+                        $this->model->commit();
+                        $this->success('循环任务创建成功', [
+                            'id' => $this->model->id,
+                            'bid' => $data['bid'],
+                            'tid' => $data['tid']
+                        ]);
+                    }
+                }
+                // === 分支2: 手动飞行任务 ===
+                elseif ($isManualFlight) {
+                    // 验证必要参数
+                    if (empty($data['equipment_id'])) {
+                        $this->model->rollback();
+                        $this->error('手动飞行任务必须指定设备ID（机场ID）');
+                    }
+                    
+                    // 设置任务状态
+                    $data['status'] = 'sent'; // 标记为已下发(虽然是前端下发)
+                    
+                    // 立即执行任务：设置当前时间
+                    if($data['task_type'] == '0'){
+                        $data['execute_time'] = time();
+                    }
+                    
+                    // 定时任务：验证execute_time是否有效
+                    if($data['task_type'] == '1' && empty($data['execute_time'])){
+                        $this->model->rollback();
+                        $this->error('定时任务必须指定执行时间');
+                    }
+                    
+                    // 只保存到数据库,不进行MQTT下发(由前端通过MQTT直连控制)
+                    $result = $this->model->save($data);
+                    if($result){
+                        // ⚠️ 调试日志：确认保存的数据
+                        \think\facade\Log::info('【手动飞行任务创建成功】保存的数据', [
+                            'task_id' => $this->model->id,
+                            'equipment_id' => $this->model->equipment_id,
+                            'airline_id' => $this->model->airline_id,
+                            'bid' => $this->model->bid,
+                            'name' => $this->model->name
+                        ]);
+                        
+                        $this->model->commit();
+                        // 返回bid和tid供前端MQTT使用
+                        $this->success('手动飞行任务创建成功', [
+                            'id' => $this->model->id,
+                            'bid' => $data['bid'],
+                            'tid' => $data['tid'],
+                            'task_type' => $data['task_type'],
+                            'execute_time' => $data['execute_time'] ?? null
+                        ]);
+                    } else {
+                        $this->model->rollback();
+                        $this->error('任务创建失败');
+                    }
+                }
+                // === 分支3: 普通航线任务(立即/定时) ===
+                else {
+                    $data['status'] = 'sent';
+                    
+                    // 立即执行任务：设置当前时间
+                    if($data['task_type'] == '0'){
+                        $data['execute_time'] = time();
+                    }
+                    
+                    // 定时任务：验证execute_time是否有效
+                    if($data['task_type'] == '1' && empty($data['execute_time'])){
+                        $this->model->rollback();
+                        $this->error('定时任务必须指定执行时间');
+                    }
+                    
+                    // 先保存到数据库，确保 MQTT 回包处理时能查到该任务 (bid)
+                    $result = $this->model->save($data);
+                    if(!$result){
+                        $this->model->rollback();
+                        $this->error(__('No rows were added'));
+                    }
+
+                    // 后端MQTT下发
+                    $res = $airline->pushTask($data);
+                    
+                    if($res['code'] > 0){
+                        $this->model->rollback();
+                        $this->error($res['msg']);
+                    }
+                    
                     $this->model->commit();
+                    $this->success(__('Added successfully'));
                 }
-            } catch (Throwable $e) {
-                $this->model->rollback();
-                $this->error($e->getMessage());
-            }
-            if($res['code'] > 0){
-                $this->model->rollback();
-                $this->error($res['msg']);
-            }
-            if ($result !== false) {
-                $this->success(__('Added successfully'));
-            } else {
-                $this->error(__('No rows were added'));
-            }
+                
+            // } catch (Throwable $e) {
+            //     $this->model->rollback();
+            //     $this->error($e->getMessage());
+            // }
         }
 
         $this->error(__('Parameter error'));
+    }
+
+    /**
+     * 取消任务（增强版 - 支持所有类型任务）
+     */
+    public function cancel(): void
+    {
+        if ($this->request->isPost()) {
+            $data = $this->request->post();
+            
+            // 参数验证
+            if (empty($data['ids'])) {
+                $this->error('请选择要取消的任务');
+            }
+            
+            // 支持批量取消，ids可以是字符串或数组
+            $ids = is_array($data['ids']) ? $data['ids'] : explode(',', $data['ids']);
+            
+            if (empty($ids)) {
+                $this->error('任务ID不能为空');
+            }
+            
+            // try {
+                // 查询要取消的任务
+                $tasks = $this->model->whereIn('id', $ids)->select();
+                
+                if ($tasks->isEmpty()) {
+                    $this->error('未找到要取消的任务');
+                }
+                
+                $successCount = 0;
+                $failedTasks = [];
+                $canceledChildCount = 0; // 记录取消的子任务数量
+                
+                foreach ($tasks as $task) {
+                    // 检查任务状态是否可以取消
+                    // 只有以下状态不可取消：ok(已完成)、failed(已失败)、canceled(已取消)、rejected(已拒绝)、timeout(超时)
+                    $cannotCancelStatuses = ['ok', 'failed', 'canceled', 'rejected', 'timeout'];
+                    if (in_array($task['status'], $cannotCancelStatuses)) {
+                        $failedTasks[] = [
+                            'name' => $task['name'],
+                            'reason' => '任务状态为 ' . $task['status'] . '，无法取消'
+                        ];
+                        continue;
+                    }
+                    
+                    // === 处理循环任务（父任务）===
+                    if ($task['task_type'] == '2') {
+                        // 1. 取消父任务本身
+                        $result = $this->model->where('id', $task['id'])->update([
+                            'status' => 'canceled',
+                            'is_repeat_enabled' => '0',
+                            'error_msg' => '用户手动取消',
+                            'update_time' => time()
+                        ]);
+                        
+                        if ($result) {
+                            $successCount++;
+                            
+                            // 2. 查询并取消所有子任务
+                            $childTasks = $this->model
+                                ->where('parent_task_id', $task['id'])
+                                ->whereNotIn('status', $cannotCancelStatuses)
+                                ->select();
+                            
+                            foreach ($childTasks as $child) {
+                                // 根据子任务状态决定取消方式
+                                $cancelResult = $this->cancelSingleTask($child);
+                                if ($cancelResult['success']) {
+                                    $canceledChildCount++;
+                                }
+                            }
+                        } else {
+                            $failedTasks[] = [
+                                'name' => $task['name'],
+                                'reason' => '数据库更新失败'
+                            ];
+                        }
+                        continue;
+                    }
+                    
+                    // === 处理普通任务（立即/定时任务）===
+                    $cancelResult = $this->cancelSingleTask($task);
+                    if ($cancelResult['success']) {
+                        $successCount++;
+                    } else {
+                        $failedTasks[] = [
+                            'name' => $task['name'],
+                            'reason' => $cancelResult['reason']
+                        ];
+                    }
+                }
+                
+                // 返回结果
+                $totalCanceled = $successCount + $canceledChildCount;
+                if (count($failedTasks) == 0) {
+                    $msg = "成功取消 {$successCount} 个任务";
+                    if ($canceledChildCount > 0) {
+                        $msg .= "（包含 {$canceledChildCount} 个子任务）";
+                    }
+                    $this->success($msg);
+                } elseif ($successCount > 0) {
+                    $msg = "成功取消 {$successCount} 个任务";
+                    if ($canceledChildCount > 0) {
+                        $msg .= "（包含 {$canceledChildCount} 个子任务）";
+                    }
+                    $msg .= "，失败 " . count($failedTasks) . " 个：";
+                    foreach ($failedTasks as $failed) {
+                        $msg .= "\n{$failed['name']}: {$failed['reason']}";
+                    }
+                    $this->success($msg);
+                } else {
+                    $msg = "取消任务失败：";
+                    foreach ($failedTasks as $failed) {
+                        $msg .= "\n{$failed['name']}: {$failed['reason']}";
+                    }
+                    $this->error($msg);
+                }
+                
+            // } catch (Throwable $e) {
+            //     $this->error('取消任务异常: ' . $e->getMessage());
+            // }
+        }
+        
+        $this->error('请求方式错误');
+    }
+    
+    /**
+     * 取消单个任务（根据状态选择合适的取消方法）
+     * @param object $task 任务对象
+     * @return array ['success' => bool, 'reason' => string]
+     */
+    private function cancelSingleTask($task): array
+    {
+        try {
+            // 获取设备信息
+            $equipment = \app\admin\model\Equipment::find($task['equipment_id']);
+            if (!$equipment) {
+                return ['success' => false, 'reason' => '未找到关联设备'];
+            }
+            
+            $mqttData = [
+                'bid' => uuid(),
+                'tid' => uuid(),
+                'timestamp' => round(microtime(true) * 1000),
+                'topic' => 'thing/product/' . $equipment['sn'] . '/services',
+                'data' => []
+            ];
+            
+            // 根据任务状态选择取消方法
+            if ($task['status'] == 'in_progress') {
+                // === 飞行中任务：使用 in_flight_wayline_cancel ===
+                $mqttData['method'] = 'in_flight_wayline_cancel';
+                // data为空对象，按官方文档要求
+            } else {
+                // === 未执行/已下发任务：使用 flighttask_undo ===
+                $mqttData['method'] = 'flighttask_undo';
+                $mqttData['data']['flight_ids'] = [$task['bid']];
+            }
+            
+            // 发布MQTT消息
+            $result = publish($mqttData);
+            
+            if ($result) {
+                // 更新数据库状态
+                $this->model->where('id', $task['id'])->update([
+                    'status' => 'canceled',
+                    'error_msg' => '用户手动取消',
+                    'update_time' => time()
+                ]);
+                return ['success' => true];
+            } else {
+                return ['success' => false, 'reason' => 'MQTT消息发送失败'];
+            }
+            
+        } catch (Throwable $e) {
+            return ['success' => false, 'reason' => 'MQTT发送异常: ' . $e->getMessage()];
+        }
+    }
+    
+    /**
+     * 上报手动飞行任务媒体数量（供前端调用）
+     * 用于统计拍照和录像产生的媒体文件数量
+     */
+    public function reportMedia(): void
+    {
+        if ($this->request->isPost()) {
+            $data = $this->request->post();
+            
+            // 参数验证
+            if (empty($data['id']) && empty($data['bid'])) {
+                $this->error('任务ID或业务ID不能为空');
+            }
+            
+            if (!isset($data['media_count']) || $data['media_count'] < 0) {
+                $this->error('媒体数量参数无效');
+            }
+            
+            // try {
+                // 查询任务（支持通过id或bid查询）
+                $query = $this->model;
+                if (!empty($data['id'])) {
+                    $task = $query->find($data['id']);
+                } else {
+                    $task = $query->where('bid', $data['bid'])->find();
+                }
+                // print_r($task);
+                if (!$task) {
+                    $this->error('任务不存在');
+                }
+                
+                // 验证是否为手动飞行任务
+                if ($task['flight_mode'] != 'manual') {
+                    $this->error('该接口仅支持手动飞行任务');
+                }
+                
+                // 准备更新数据
+                $updateData = [
+                    'media_total' => $data['media_count'],
+                    'update_time' => time()
+                ];
+                
+                // 关键逻辑：如果上报的数量大于当前media_now，同步更新media_now
+                // 这样可以保证media_now始终不会大于media_total
+                if ($data['media_count'] > $task['media_now']) {
+                    $updateData['media_now'] = $data['media_count'];
+                }
+                
+                // 如果提供了媒体类型统计（可选）
+                if (isset($data['photo_count'])) {
+                    $updateData['photo_count'] = $data['photo_count'];
+                }
+                if (isset($data['video_count'])) {
+                    $updateData['video_count'] = $data['video_count'];
+                }
+                
+                $result = $this->model->where('id', $task['id'])->update($updateData);
+                
+                if ($result !== false) {
+                    $responseData = [
+                        'id' => $task['id'],
+                        'media_total' => $data['media_count'],
+                        'update_time' => time()
+                    ];
+                    
+                    // 如果同步更新了media_now，在响应中返回
+                    if (isset($updateData['media_now'])) {
+                        $responseData['media_now'] = $updateData['media_now'];
+                        $responseData['synced'] = true; // 标记已同步
+                    }
+                    
+                    $this->success('媒体数量上报成功', $responseData);
+                } else {
+                    $this->error('媒体数量上报失败');
+                }
+                
+            // } catch (Throwable $e) {
+            //     $this->error('上报异常: ' . $e->getMessage());
+            // }
+        }
+        
+        $this->error('请求方式错误');
+    }
+    
+    /**
+     * 完成手动飞行任务（供前端调用）
+     * 将任务状态更新为成功完成(ok)
+     */
+    public function completeManual(): void
+    {
+        if ($this->request->isPost()) {
+            $data = $this->request->post();
+            
+            // 参数验证
+            if (empty($data['id']) && empty($data['bid'])) {
+                $this->error('任务ID或业务ID不能为空');
+            }
+            
+            try {
+                // 查询任务（支持通过id或bid查询）
+                $query = $this->model;
+                if (!empty($data['id'])) {
+                    $task = $query->find($data['id']);
+                } else {
+                    $task = $query->where('bid', $data['bid'])->find();
+                }
+                
+                if (!$task) {
+                    $this->error('任务不存在');
+                }
+                
+                // 验证是否为手动飞行任务
+                if ($task['flight_mode'] != 'manual') {
+                    $this->error('该接口仅支持手动飞行任务');
+                }
+                
+                // 验证任务状态（只有执行中或已下发的任务才能完成）
+                if (!in_array($task['status'], ['sent', 'in_progress'])) {
+                    $this->error('任务状态不允许完成操作，当前状态: ' . $task['status']);
+                }
+                
+                // 准备更新数据
+                $updateData = [
+                    'status' => 'ok',
+                    'end_time' => isset($data['end_time']) ? $data['end_time'] : time(),
+                    'update_time' => time()
+                ];
+                
+                // 如果提供了额外的完成信息（可选）
+                // if (isset($data['media_total'])) {
+                //     $updateData['media_total'] = $data['media_total'];
+                // }
+                // if (isset($data['media_now'])) {
+                //     $updateData['media_now'] = $data['media_now'];
+                // }
+                if (isset($data['now_point'])) {
+                    $updateData['now_point'] = $data['now_point'];
+                }
+                
+                // 执行更新
+                $result = $this->model->where('id', $task['id'])->update($updateData);
+                
+                if ($result !== false) {
+                    // 计算任务时长
+                    $duration = null;
+                    if ($task['execute_time'] && $updateData['end_time']) {
+                        $startTime = is_numeric($task['execute_time']) ? intval($task['execute_time']) : strtotime($task['execute_time']);
+                        $endTime = intval($updateData['end_time']);
+                        if ($startTime > 9999999999) $startTime = intval($startTime / 1000);
+                        if ($endTime > 9999999999) $endTime = intval($endTime / 1000);
+                        $duration = $endTime - $startTime;
+                    }
+                    
+                   
+                } else {
+                    $this->error('任务完成失败');
+                }
+                
+            } catch (Throwable $e) {
+                $this->error('完成任务异常: ' . $e->getMessage());
+            }
+        }
+         $this->success('任务完成成功', [
+            'id' => $task['id'],
+            'bid' => $task['bid'],
+            'status' => 'ok',
+            'end_time' => $updateData['end_time'],
+            'duration' => $duration,
+            'media_total' => $updateData['media_total'] ?? $task['media_total']
+        ]);
+        // $this->error('请求方式错误');
     }
 
     /**
@@ -252,7 +720,9 @@ class Flighttask extends Backend
     {
         $types = [
             '0' => '立即任务',
-            '1' => '定时任务'
+            '1' => '定时任务',
+            '2' => '循环任务',
+            '3' => '手动飞行'
         ];
         return $types[$type] ?? $type;
     }
@@ -476,5 +946,161 @@ class Flighttask extends Backend
         } catch (\Exception $e) {
             return ['success' => false, 'message' => '导出失败：' . $e->getMessage()];
         }
+    }
+    
+    /**
+     * 获取任务错误详情
+     * @throws Throwable
+     */
+    public function errorDetail(): void
+    {
+        $id = $this->request->param('id');
+        
+        if (!$id) {
+            $this->error('缺少任务ID参数');
+        }
+        
+        $task = $this->model->find($id);
+        
+        if (!$task) {
+            $this->error('任务不存在');
+        }
+        
+        // 引入错误处理类
+        $errorHandler = new \dji\ErrorHandler();
+        
+        // 构建错误详情
+        $errorDetail = [
+            'basic' => [
+                'task_id' => $task['id'],
+                'flight_id' => $task['bid'],
+                'task_name' => $task['name'],
+                'status' => $task['status'],
+                'status_text' => $errorHandler::getTaskStatusMessage($task['status']),
+                'failed_time' => $task['failed_time'] ? date('Y-m-d H:i:s', $task['failed_time']) : null
+            ],
+            'error' => null,
+            'location' => null,
+            'state' => null,
+            'suggestion' => null
+        ];
+        
+        // 如果有错误信息
+        if ($task['error_code'] || $task['break_reason']) {
+            // 下发错误
+            if ($task['error_code'] && $task['status'] == 'rejected') {
+                $errorDetail['error'] = [
+                    'type' => 'prepare',
+                    'code' => $task['error_code'],
+                    'message' => $task['error_msg'] ?: $errorHandler::getPrepareErrorMessage($task['error_code']),
+                    'is_critical' => true,
+                    'can_retry' => false
+                ];
+                $errorDetail['suggestion'] = '请检查航线文件和设备状态后重新下发任务';
+            }
+            
+            // 执行错误
+            if ($task['break_reason']) {
+                $breakReason = (int)$task['break_reason'];
+                $errorDetail['error'] = [
+                    'type' => 'execution',
+                    'code' => $breakReason,
+                    'message' => $task['error_msg'] ?: $errorHandler::getExecutionErrorMessage($breakReason),
+                    'category' => $errorHandler::getErrorCategory($breakReason),
+                    'is_critical' => $errorHandler::isCriticalError($breakReason),
+                    'can_retry' => $errorHandler::canAutoRetry($breakReason),
+                    'is_user_action' => $errorHandler::isUserAction($breakReason),
+                    'is_device_issue' => $errorHandler::isDeviceIssue($breakReason)
+                ];
+                
+                // 断点位置信息
+                if ($task['break_latitude'] || $task['break_longitude']) {
+                    $errorDetail['location'] = [
+                        'latitude' => $task['break_latitude'],
+                        'longitude' => $task['break_longitude'],
+                        'waypoint_index' => $task['now_point']
+                    ];
+                }
+                
+                // 建议处理方案
+                $errorDetail['suggestion'] = $errorHandler::getSuggestedAction($breakReason);
+            }
+        }
+        
+        // 航线任务状态
+        if ($task['wayline_mission_state'] !== null) {
+            $errorDetail['state'] = [
+                'wayline_mission_state' => $task['wayline_mission_state'],
+                'wayline_mission_state_text' => $errorHandler::getWaylineStateMessage($task['wayline_mission_state']),
+                'failed_step' => $task['failed_step'],
+                'current_waypoint' => $task['now_point'],
+                'total_waypoint' => $task['total_point']
+            ];
+        }
+        
+        $this->success('获取成功', $errorDetail);
+    }
+    
+    /**
+     * 获取错误统计
+     * @throws Throwable
+     */
+    public function errorStats(): void
+    {
+        // 统计各类错误的数量
+        $stats = [
+            'total_failed' => $this->model->where('status', 'in', ['failed', 'rejected', 'paused'])->count(),
+            'prepare_error' => $this->model->where('status', 'rejected')->count(),
+            'execution_error' => $this->model->where('break_reason', '>', 0)->count(),
+            'critical_error' => 0,
+            'retryable_error' => 0,
+            'user_action' => 0,
+            'device_issue' => 0
+        ];
+        
+        // 获取所有有break_reason的任务
+        $tasks = $this->model
+            ->where('break_reason', '>', 0)
+            ->field('break_reason')
+            ->select();
+        
+        $errorHandler = new \dji\ErrorHandler();
+        
+        foreach ($tasks as $task) {
+            $breakReason = (int)$task['break_reason'];
+            if ($errorHandler::isCriticalError($breakReason)) {
+                $stats['critical_error']++;
+            }
+            if ($errorHandler::canAutoRetry($breakReason)) {
+                $stats['retryable_error']++;
+            }
+            if ($errorHandler::isUserAction($breakReason)) {
+                $stats['user_action']++;
+            }
+            if ($errorHandler::isDeviceIssue($breakReason)) {
+                $stats['device_issue']++;
+            }
+        }
+        
+        // 错误TOP10
+        $topErrors = $this->model
+            ->where('break_reason', '>', 0)
+            ->field('break_reason, error_msg, COUNT(*) as count')
+            ->group('break_reason, error_msg')
+            ->order('count', 'desc')
+            ->limit(10)
+            ->select()
+            ->toArray();
+        
+        $stats['top_errors'] = array_map(function($item) use ($errorHandler) {
+            return [
+                'code' => $item['break_reason'],
+                'message' => $item['error_msg'] ?: $errorHandler::getExecutionErrorMessage($item['break_reason']),
+                'count' => $item['count'],
+                'category' => $errorHandler::getErrorCategory($item['break_reason'])
+            ];
+        }, $topErrors);
+        
+        $this->success('获取成功', $stats);
     }
 }

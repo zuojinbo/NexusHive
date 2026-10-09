@@ -482,57 +482,20 @@ class Install extends Api
             $this->error(__('File has no write permission:%s', ['config/' . self::$dbConfigFileName]));
         }
 
-        // 写入.env-example文件
-        $envFile        = root_path() . '.env-example';
-        $envFileContent = @file_get_contents($envFile);
-        if ($envFileContent) {
-            $databasePos = stripos($envFileContent, '[DATABASE]');
-            if ($databasePos !== false) {
-                // 清理已有数据库配置
-                $envFileContent = substr($envFileContent, 0, $databasePos);
-            }
-            $envFileContent .= "\n" . '[DATABASE]' . "\n";
-            $envFileContent .= 'TYPE = mysql' . "\n";
-            $envFileContent .= 'HOSTNAME = ' . $databaseParam['hostname'] . "\n";
-            $envFileContent .= 'DATABASE = ' . $databaseParam['database'] . "\n";
-            $envFileContent .= 'USERNAME = ' . $databaseParam['username'] . "\n";
-            $envFileContent .= 'PASSWORD = ' . $databaseParam['password'] . "\n";
-            $envFileContent .= 'HOSTPORT = ' . $databaseParam['hostport'] . "\n";
-            $envFileContent .= 'PREFIX = ' . $databaseParam['prefix'] . "\n";
-            $envFileContent .= 'CHARSET = utf8mb4' . "\n";
-            $envFileContent .= 'DEBUG = true' . "\n";
-
-            // OSS 配置
-            if (stripos($envFileContent, "[OSS]") === false) {
-                $envFileContent .= "\n" . '[OSS]' . "\n";
-                $envFileContent .= 'CDN_BASE = ' . "\n";
-                $envFileContent .= 'BUCKET = ' . "\n";
-                $envFileContent .= 'ENDPOINT = ' . "\n";
-            }
-
-            // OSS 配置
-            if (stripos($envFileContent, "[OSS]") === false) {
-                $envFileContent .= "\n" . '[OSS]' . "\n";
-                $envFileContent .= 'CDN_BASE = ' . "\n";
-                $envFileContent .= 'BUCKET = ' . "\n";
-                $envFileContent .= 'ENDPOINT = ' . "\n";
-            }
-            // ALI STS 配置
-            if (stripos($envFileContent, "[ALISTS]") === false) {
-                $envFileContent .= "\n" . '[ALISTS]' . "\n";
-                $envFileContent .= 'URL = ' . "\n";
-                $envFileContent .= 'ACCESS_KEY_ID = ' . "\n";
-                $envFileContent .= 'ACCESS_KEY_SECRET = ' . "\n";
-                $envFileContent .= 'ROLE_ARN = ' . "\n";
-                $envFileContent .= 'ROLE_SESSION_NAME = ' . "\n";
-                $envFileContent .= 'DURATION_SECONDS = ' . "\n";
-            }
-
-            $result         = @file_put_contents($envFile, $envFileContent);
-            if (!$result) {
-                $this->error(__('File has no write permission:%s', ['/' . $envFile]));
-            }
+        // 生成 .env 文件内容
+        $envContent = $this->generateEnvContent($databaseParam);
+        
+        // 写入 .env 文件
+        $envFile = root_path() . '.env';
+        $result = @file_put_contents($envFile, $envContent);
+        if (!$result) {
+            $this->error(__('File has no write permission:%s', ['.env']));
         }
+        
+        // 同时写入 .env-example 文件（不包含敏感信息）
+        $envExampleFile = root_path() . '.env-example';
+        $envExampleContent = $this->generateEnvContent($databaseParam, true);
+        @file_put_contents($envExampleFile, $envExampleContent);
 
         // 设置新的Token随机密钥key
         $oldTokenKey        = Config::get('buildadmin.token.key');
@@ -827,5 +790,91 @@ class Install extends Api
         }
         if (trim($current) !== '') { $statements[] = $current; }
         return $statements;
+    }
+    
+    /**
+     * 生成 .env 文件内容
+     * 
+     * @param array $databaseParam 数据库配置参数
+     * @param bool $isExample 是否为示例文件（隐藏敏感信息）
+     * @return string
+     */
+    protected function generateEnvContent(array $databaseParam, bool $isExample = false): string
+    {
+        // 生成客户端唯一标识
+        $clientId = $this->generateClientId();
+        
+        $content = "APP_DEBUG = true\n\n";
+        
+        // OSS 配置
+        $content .= "[OSS]\n";
+        $content .= "; 平台静态资源存储（头像、附件等）\n";
+        $content .= "CDN_BASE = \n";
+        $content .= "BUCKET = \n";
+        $content .= "ENDPOINT = \n\n";
+        
+        // DJI 配置
+        $content .= "[DJI]\n";
+        $content .= "NTP_SERVER_HOST = ntp.aliyun.com\n";
+        $content .= "NTP_SERVER_PORT = 123\n";
+        $content .= "APP_ID = \n";
+        $content .= "APP_KEY = \n";
+        $content .= "APP_LICENSE = \n\n";
+        
+        // 阿里云 STS 配置
+        $content .= "[ALISTS]\n";
+        $content .= "; DJI飞行资源存储（航线、媒体、日志等）- 使用STS临时凭证\n";
+        $content .= "URL = https://sts.aliyuncs.com\n";
+        $content .= "ACCESS_KEY_ID = \n";
+        $content .= "ACCESS_KEY_SECRET = \n";
+        $content .= "ROLE_ARN = \n";
+        $content .= "ROLE_SESSION_NAME = \n";
+        $content .= "DURATION_SECONDS = 3599\n";
+        $content .= "BUCKET = \n";
+        $content .= "ENDPOINT = \n";
+        $content .= "CDN_BASE = \n\n";
+        
+        // 应用配置
+        $content .= "[APP]\n";
+        $content .= "DEFAULT_TIMEZONE = Asia/Shanghai\n\n";
+        
+        // 语言配置
+        $content .= "[LANG]\n";
+        $content .= "default_lang = zh-cn\n\n";
+        
+        // 数据库配置
+        $content .= "[DATABASE]\n";
+        $content .= "TYPE = mysql\n";
+        $content .= "HOSTNAME = " . ($isExample ? '127.0.0.1' : $databaseParam['hostname']) . "\n";
+        $content .= "DATABASE = " . ($isExample ? 'your_database' : $databaseParam['database']) . "\n";
+        $content .= "USERNAME = " . ($isExample ? 'your_username' : $databaseParam['username']) . "\n";
+        $content .= "PASSWORD = " . ($isExample ? 'your_password' : $databaseParam['password']) . "\n";
+        $content .= "HOSTPORT = " . ($isExample ? '3306' : $databaseParam['hostport']) . "\n";
+        $content .= "PREFIX = " . ($isExample ? 'nz_' : $databaseParam['prefix']) . "\n";
+        $content .= "CHARSET = utf8mb4\n";
+        $content .= "DEBUG = true\n\n";
+        
+        // 客户端唯一标识
+        $content .= "# 客户端唯一标识（自动生成，请勿修改）\n";
+        $content .= "UPDATER_CLIENT_ID = " . ($isExample ? '' : $clientId) . "\n";
+        
+        return $content;
+    }
+    
+    /**
+     * 生成客户端唯一标识
+     * 
+     * @return string
+     */
+    protected function generateClientId(): string
+    {
+        $factors = [
+            php_uname('n'),      // 主机名
+            php_uname('m'),      // 机器类型
+            $_SERVER['SERVER_ADDR'] ?? gethostbyname(gethostname()),  // 服务器IP
+            root_path(),         // 项目根目录
+        ];
+        
+        return hash('sha256', implode('|', $factors));
     }
 }

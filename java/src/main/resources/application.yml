@@ -1,0 +1,90 @@
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+spring:
+  application:
+    name: nexushive-backend
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:flysee}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&tinyInt1isBit=false&useSSL=false&allowPublicKeyRetrieval=true&zeroDateTimeBehavior=convertToNull
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:StrongRootPwd!123}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+  servlet:
+    multipart:
+      max-file-size: 256MB
+      max-request-size: 256MB
+  sql:
+    init:
+      mode: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      table-prefix: ""
+      id-type: auto
+
+nexushive:
+  table-prefix: nz_
+  # 与 config/buildadmin.php 的 token.key 一致，可用 TOKEN_KEY 覆盖。不要把生产密钥写进仓库。
+  token-key: ${TOKEN_KEY:Mi1sG8xQ9oHE5Taru73w24LKgkY6JIFt}
+  token-keep-seconds: 259200
+  refresh-keep-seconds: 2592000
+  public-dir: ${PUBLIC_DIR:../public}
+  mqtt:
+    uri: ${MQTT_URI:tcp://127.0.0.1:1883}
+    username: ${MQTT_USERNAME:}
+    password: ${MQTT_PASSWORD:}
+    client-id: ${MQTT_CLIENT_ID:}
+  storage:
+    provider: ${STORAGE_PROVIDER:ali}
+    bucket: ${STORAGE_BUCKET:}
+    endpoint: ${STORAGE_ENDPOINT:}
+    region: ${STORAGE_REGION:cn-chengdu}
+    cdn-url: ${STORAGE_CDN_URL:}
+    sts-url: ${STORAGE_STS_URL:https://sts.aliyuncs.com}
+    access-key-id: ${STORAGE_ACCESS_KEY_ID:}
+    access-key-secret: ${STORAGE_ACCESS_KEY_SECRET:}
+    role-arn: ${STORAGE_ROLE_ARN:}
+    role-session-name: ${STORAGE_ROLE_SESSION_NAME:nexushive}
+    sts-duration: ${STORAGE_STS_DURATION:3599}
+    minio-access-key: ${STORAGE_ACCESS_KEY:}
+    minio-secret-key: ${STORAGE_SECRET_KEY:}
+  dji:
+    ntp-host: ${DJI_NTP_SERVER_HOST:ntp.aliyun.com}
+    ntp-port: ${DJI_NTP_SERVER_PORT:123}
+    app-id: ${DJI_APP_ID:}
+    app-key: ${DJI_APP_KEY:}
+    app-license: ${DJI_APP_LICENSE:}
+  agora:
+    token-url: ${AGORA_TOKEN_URL:}
+  zlm:
+    api-server: ${ZLM_API_SERVER:}
+    api-secret: ${ZLM_API_SECRET:}
+    rtmp-url: ${ZLM_RTMP_URL:}
+    flv-url: ${ZLM_FLV_URL:}
+    hls-url: ${ZLM_HLS_URL:}
+    api-schema: ${ZLM_API_SCHEMA:rtmp}
+    app: ${ZLM_APP:live}
+    rtmp-secret: ${ZLM_RTMP_SECRET:}
+  dashscope:
+    api-key: ${DASHSCOPE_API_KEY:}

@@ -5,7 +5,7 @@ namespace app\admin\controller;
 use Throwable;
 use app\common\controller\Backend;
 use ZipArchive;
-use modules\alioss\Alioss;
+use ba\Storage;
 
 /**
  * 航线管理
@@ -96,6 +96,28 @@ class Airline extends Backend
                         $validate->check($data);
                     }
                 }
+                
+                // 处理飞行器型号
+                if (isset($data['drone_model_key']) && !empty($data['drone_model_key'])) {
+                    // 加载产品配置,获取飞行器名称
+                    $productConfig = config('dji_products');
+                    $getProductInfo = $productConfig['get_product_info'] ?? null;
+                    
+                    if (is_callable($getProductInfo)) {
+                        $aircraftInfo = $getProductInfo($data['drone_model_key']);
+                        if ($aircraftInfo && isset($aircraftInfo['name'])) {
+                            $data['drone_model_name'] = $aircraftInfo['name'];
+                        } else {
+                            $this->error('无效的飞行器型号');
+                        }
+                    } else {
+                        $this->error('产品配置异常');
+                    }
+                } else {
+                    // 未选择飞行器型号,设置为通用航线
+                    $data['drone_model_key'] = null;
+                    $data['drone_model_name'] = null;
+                }
                 if (isset($data['template']) && isset($data['wayline'])) {
                      // 新增KMZ打包逻辑
                     $templatePath = app()->getRootPath() . '/public' . $data['template'];
@@ -127,19 +149,33 @@ class Airline extends Backend
                         $data['kmz'] = '/kmz/' . $data['name'] .'.kmz';
                         $data['kmz_md5'] = md5_file($kmzPath);
                         
-                        // 上传KMZ文件到阿里云OSS
-                        // 上传KMZ文件到阿里云OSS
+                        // 上传KMZ文件到OSS（使用统一存储配置）
                         try {
-                            $uploadConfig = get_sys_config('', 'upload');
-                            if ($uploadConfig['upload_mode'] == 'alioss') {
+                            $storageConfig = Storage::getConfig();
+                            $ossPath = 'kmz/' . $data['name'] . '.kmz';
+                            
+                            if (Storage::isMinio()) {
+                                // MinIO使用S3客户端
+                                $s3Client = Storage::getS3Client();
+                                $s3Client->putObject([
+                                    'Bucket' => $storageConfig['bucket'],
+                                    'Key'    => $ossPath,
+                                    'SourceFile' => $kmzPath,
+                                ]);
+                            } else {
+                                // 阿里云OSS - 使用永久凭证直接上传
+                                $endpoint = $storageConfig['endpoint'];
+                                if (!str_starts_with($endpoint, 'http')) {
+                                    $endpoint = 'https://' . $endpoint;
+                                }
                                 $ossClient = new \OSS\OssClient(
-                                    $uploadConfig['upload_access_id'],
-                                    $uploadConfig['upload_secret_key'],
-                                    $uploadConfig['upload_url'] . '.aliyuncs.com'
+                                    $storageConfig['access_key_id'],
+                                    $storageConfig['access_key_secret'],
+                                    $endpoint
                                 );
-                                $ossPath = 'kmz/' . $data['name'] . '.kmz';
-                                $ossClient->uploadFile($uploadConfig['upload_bucket'], $ossPath, $kmzPath);
+                                $ossClient->uploadFile($storageConfig['bucket'], $ossPath, $kmzPath);
                             }
+                            trace('KMZ文件上传成功: ' . $ossPath, 'info');
                         } catch (Throwable $e) {
                             // OSS上传失败不影响主流程，记录日志即可
                             trace('OSS上传失败: ' . $e->getMessage(), 'error');
@@ -226,6 +262,30 @@ class Airline extends Backend
                         $validate->check($data);
                     }
                 }
+                
+                // 处理飞行器型号
+                if (isset($data['drone_model_key'])) {
+                    if (!empty($data['drone_model_key'])) {
+                        // 加载产品配置,获取飞行器名称
+                        $productConfig = config('dji_products');
+                        $getProductInfo = $productConfig['get_product_info'] ?? null;
+                        
+                        if (is_callable($getProductInfo)) {
+                            $aircraftInfo = $getProductInfo($data['drone_model_key']);
+                            if ($aircraftInfo && isset($aircraftInfo['name'])) {
+                                $data['drone_model_name'] = $aircraftInfo['name'];
+                            } else {
+                                $this->error('无效的飞行器型号');
+                            }
+                        } else {
+                            $this->error('产品配置异常');
+                        }
+                    } else {
+                        // 清空型号（设置为通用航线）
+                        $data['drone_model_key'] = null;
+                        $data['drone_model_name'] = null;
+                    }
+                }
 
                 // 新增KMZ打包逻辑（仅在template或wayline变更时执行）
                 if (isset($data['template']) || isset($data['wayline'])) {
@@ -258,19 +318,33 @@ class Airline extends Backend
                         $data['kmz'] = '/kmz/' . $data['name'] .'.kmz';
                         $data['kmz_md5'] = md5_file($kmzPath);
                         
-                        // 上传KMZ文件到阿里云OSS
-                        // 上传KMZ文件到阿里云OSS
+                        // 上传KMZ文件到OSS（使用统一存储配置）
                         try {
-                            $uploadConfig = get_sys_config('', 'upload');
-                            if ($uploadConfig['upload_mode'] == 'alioss') {
+                            $storageConfig = Storage::getConfig();
+                            $ossPath = 'kmz/' . $data['name'] . '.kmz';
+                            
+                            if (Storage::isMinio()) {
+                                // MinIO使用S3客户端
+                                $s3Client = Storage::getS3Client();
+                                $s3Client->putObject([
+                                    'Bucket' => $storageConfig['bucket'],
+                                    'Key'    => $ossPath,
+                                    'SourceFile' => $kmzPath,
+                                ]);
+                            } else {
+                                // 阿里云OSS - 使用永久凭证直接上传
+                                $endpoint = $storageConfig['endpoint'];
+                                if (!str_starts_with($endpoint, 'http')) {
+                                    $endpoint = 'https://' . $endpoint;
+                                }
                                 $ossClient = new \OSS\OssClient(
-                                    $uploadConfig['upload_access_id'],
-                                    $uploadConfig['upload_secret_key'],
-                                    $uploadConfig['upload_url'] . '.aliyuncs.com'
+                                    $storageConfig['access_key_id'],
+                                    $storageConfig['access_key_secret'],
+                                    $endpoint
                                 );
-                                $ossPath = 'kmz/' . $data['name'] . '.kmz';
-                                $ossClient->uploadFile($uploadConfig['upload_bucket'], $ossPath, $kmzPath);
+                                $ossClient->uploadFile($storageConfig['bucket'], $ossPath, $kmzPath);
                             }
+                            trace('KMZ文件上传成功: ' . $ossPath, 'info');
                         } catch (Throwable $e) {
                             // OSS上传失败不影响主流程，记录日志即可
                             trace('OSS上传失败: ' . $e->getMessage(), 'error');

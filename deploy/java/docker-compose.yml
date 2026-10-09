@@ -1,0 +1,125 @@
+# Java 后端同域部署。PHP 栈仍在 deploy/docker/docker-compose.yml，两套不要同时占用 80/3306/1883。
+# 用法见 java/DEPLOY.md。密钥只放本目录 .env（从 .env.example 复制），不要提交 .env。
+name: nexushive-java
+
+services:
+  mysql:
+    image: mysql:5.7
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?在 deploy/java/.env 中设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-flysee}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # 只在数据目录为空时执行，按文件名顺序。schema.sql 含 DROP TABLE。
+      # 导入已有 dump 时先去掉下面两行，见 java/DEPLOY.md「已有业务库」。
+      - ../../java/src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../../java/src/main/resources/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    ports:
+      - "127.0.0.1:3306:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  emqx:
+    image: emqx/emqx:5.8
+    restart: unless-stopped
+    environment:
+      EMQX_DASHBOARD__DEFAULT_USERNAME: admin
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:?在 deploy/java/.env 中设置 EMQX_DASHBOARD_PASSWORD}
+    ports:
+      - "1883:1883"
+      - "8083:8083"
+      - "127.0.0.1:18083:18083"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 10s
+      timeout: 15s
+      retries: 20
+      start_period: 20s
+
+  java:
+    build:
+      context: ../../java
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      SERVER_PORT: "8080"
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-flysee}
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:?在 deploy/java/.env 中设置 DB_PASSWORD}
+      TOKEN_KEY: ${TOKEN_KEY:?在 deploy/java/.env 中设置 TOKEN_KEY}
+      PUBLIC_DIR: /var/www/public
+      MQTT_URI: tcp://emqx:1883
+      MQTT_USERNAME: ${MQTT_USERNAME:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-}
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-ali}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_REGION: ${STORAGE_REGION:-cn-chengdu}
+      STORAGE_CDN_URL: ${STORAGE_CDN_URL:-}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-}
+      STORAGE_ACCESS_KEY_SECRET: ${STORAGE_ACCESS_KEY_SECRET:-}
+      STORAGE_ROLE_ARN: ${STORAGE_ROLE_ARN:-}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
+      DJI_APP_ID: ${DJI_APP_ID:-}
+      DJI_APP_KEY: ${DJI_APP_KEY:-}
+      DJI_APP_LICENSE: ${DJI_APP_LICENSE:-}
+      DJI_NTP_SERVER_HOST: ${DJI_NTP_SERVER_HOST:-ntp.aliyun.com}
+      DJI_NTP_SERVER_PORT: ${DJI_NTP_SERVER_PORT:-123}
+      AGORA_TOKEN_URL: ${AGORA_TOKEN_URL:-}
+      ZLM_API_SERVER: ${ZLM_API_SERVER:-}
+      ZLM_API_SECRET: ${ZLM_API_SECRET:-}
+      ZLM_RTMP_URL: ${ZLM_RTMP_URL:-}
+      ZLM_FLV_URL: ${ZLM_FLV_URL:-}
+      ZLM_HLS_URL: ${ZLM_HLS_URL:-}
+      ZLM_RTMP_SECRET: ${ZLM_RTMP_SECRET:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+    volumes:
+      - ../../public:/var/www/public
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  nginx:
+    image: nginx:1.25-alpine
+    restart: unless-stopped
+    depends_on:
+      java:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    volumes:
+      - ../docker/nginx/java-site.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../../public:/var/www/public:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  mysql_data:

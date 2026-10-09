@@ -46,3 +46,6 @@ pnpm-debug.log*
 
 # Java backend build output
 /java/target/
+
+# Java compose local secrets. Commit only deploy/java/.env.example.
+/deploy/java/.env

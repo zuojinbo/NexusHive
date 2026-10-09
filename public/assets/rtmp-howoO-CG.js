@@ -1,0 +1,1 @@
+import{d as e}from"./index-e-dypP0o.js";function i(t){return e({url:"/admin/Equipment/getRtmpConfig",method:"get",params:{sn:t}})}function m(t){return e({url:"/admin/Equipment/updateRtmpConfig",method:"post",data:t})}function o(t){return e({url:"/admin/Equipment/verify_model",method:"post",data:t})}export{i as g,m as u,o as v};

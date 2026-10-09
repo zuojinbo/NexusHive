@@ -29,6 +29,11 @@ class Index extends Frontend
      */
     public function index(): void
     {
+        $siteName = trim((string)get_sys_config('site_name'));
+        if (in_array($siteName, ['', 'NEXUS HIVE', 'Nexus Hive', 'NexusHive', 'Nexus Hive 开源版', '中建智科'], true)) {
+            $siteName = 'NEXUS HIVE';
+        }
+
         $menus = [];
         if ($this->auth->isLogin()) {
             $rules     = [];
@@ -73,7 +78,7 @@ class Index extends Frontend
 
         $this->success('', [
             'site'             => [
-                'siteName'     => get_sys_config('site_name'),
+                'siteName'     => $siteName,
                 'version'      => get_sys_config('version'),
                 'cdnUrl'       => full_url(),
                 'upload'       => keys_to_camel_case(get_upload_config(), ['max_size', 'save_name', 'allowed_suffixes', 'allowed_mime_types']),

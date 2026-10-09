@@ -27,6 +27,11 @@ class Index extends Backend
         $adminInfo['super'] = $this->auth->isSuperAdmin();
         unset($adminInfo['token'], $adminInfo['refresh_token']);
 
+        $siteName = trim((string)get_sys_config('site_name'));
+        if (in_array($siteName, ['', 'NEXUS HIVE', 'Nexus Hive', 'NexusHive', 'Nexus Hive 开源版', '中建智科'], true)) {
+            $siteName = 'NEXUS HIVE';
+        }
+
         $menus = $this->auth->getMenus();
         if (!$menus) {
             $this->error(__('No background menu, please contact super administrator!'));
@@ -35,7 +40,7 @@ class Index extends Backend
             'adminInfo'  => $adminInfo,
             'menus'      => $menus,
             'siteConfig' => [
-                'siteName'     => get_sys_config('site_name'),
+                'siteName'     => $siteName,
                 'version'      => get_sys_config('version'),
                 'apiUrl'       => Config::get('buildadmin.api_url'),
                 'upload'       => keys_to_camel_case(get_upload_config(), ['max_size', 'save_name', 'allowed_suffixes', 'allowed_mime_types']),

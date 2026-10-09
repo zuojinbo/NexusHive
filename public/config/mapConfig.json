@@ -108,7 +108,7 @@
             "id": 2021,
             "pid": 10,
             "name": "天地图影像",
-            "icon": "https://data.mars3d.cn/img/thumbnail/basemap/tdt_img.png",
+            "icon": "/img/basemaps/tdt_img.png",
             "type": "group",
             "layers": [
                 {

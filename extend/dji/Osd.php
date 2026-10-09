@@ -3,6 +3,7 @@
 namespace dji;
 
 use app\admin\model\Flightosd;
+use think\facade\Log;
 
 class Osd
 {
@@ -47,6 +48,29 @@ class Osd
         $data['method'] = $param['method'];
         $data['topic'] = 'sys/product/' . $param['sn'] . '/status_reply';
         $data['data'] = $other;
-        publish($data);
+        
+        // 记录完整的发送数据用于调试（包含当前服务器时间）
+        $this->topoLog('服务器时间=' . date('Y-m-d H:i:s') . ', timestamp=' . $data['timestamp'] . ', 准备发送: ' . json_encode($data, JSON_UNESCAPED_UNICODE));
+        
+        $result = publish($data);
+        
+        if ($result) {
+            $this->topoLog('发送成功: sn=' . $param['sn']);
+        } else {
+            $this->topoLog('发送失败: sn=' . $param['sn']);
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 拓扑更新专用日志
+     */
+    protected function topoLog($message)
+    {
+        $logFile = runtime_path() . 'topo_update.log';
+        $time = date('Y-m-d H:i:s');
+        $content = "[{$time}] [Osd] {$message}\n";
+        file_put_contents($logFile, $content, FILE_APPEND | LOCK_EX);
     }
 }

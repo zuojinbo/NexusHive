@@ -1,23 +1,32 @@
-# Nexus Hive for Web低空智能飞行调度平台
-
+# NexusHive超级机场-低空智能飞行应用平台
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![BuildAdmin](https://img.shields.io/badge/Backend-BuildAdmin-brightgreen.svg)](https://buildadmin.com/)
 [![Mars3D](https://img.shields.io/badge/Visualization-Mars3D-orange.svg)](https://mars3d.cn/)
 [![DJI SDK](https://img.shields.io/badge/DJI-Cloud%20API-v2--v3-success.svg)](https://developer.dji.com/)
 
-![输入图片说明](image.png)
-![输入图片说明](tx.png)
-![输入图片说明](jg.png)
-![输入图片说明](kj.png)
 ## 概述
 
-一款基于 **大疆上云API (DJI Cloud API)** 开发的工业级低空无人机智能调度与管理平台。后端采用 **BuildAdmin** 框架，提供稳定高效的API服务；前端三维可视化基于 **Mars3D** 引擎，呈现炫酷真实的作业场景。实现了对无人机机队的集中化、自动化、可视化管控，赋能能源巡检、工程测绘、安防监控等低空作业场景。
+一款 **工业级低空无人机智能调度与管理平台** ，项目凝结了团队在众多大型实战项目中的实用经验，形成 **生产级、好用、智能的无人机系统管理体系** ，项目最大程度的开放开源版功能（基本满足生产环境所需），支持大疆上云、PX4系列、Mavlink系列的多种无人机适配接入，核心功能涵盖了：设备管理、航线管理、任务管理、媒体管理等，项目前端三维可视化基于Cesium引擎开发， **实现了对无人机机队的集中化、自动化、可视化管控** ，项目已在科研、教学、电网、铁路、交通、建筑、城市安防等场景大规模应用。
+
+```
+> 系统演示地址：https://hezi.chuangxing.ren/index.html#/
+             账号：admin
+             密码：a123456
+```
+
+
+![输入图片说明](https://cyun-1300660186.file.myqcloud.com/image/1/2026/05/c2161ed44d6f3ac6932c39412b53ce88.jpg)
+![输入图片说明](https://cyun-1300660186.file.myqcloud.com/image/1/2026/05/2adb7bcb5679f5a171b5b83b9c21767b.jpg)
+![输入图片说明](https://cyun-1300660186.file.myqcloud.com/image/1/2026/05/344cd8af9558434e942d23283dbb6174.jpg)
+![输入图片说明](https://cyun-1300660186.file.myqcloud.com/image/1/2026/05/d1b150c0923dd075686e76001005349d.jpg)
+![输入图片说明](https://cyun-1300660186.file.myqcloud.com/image/1/2026/05/c9d5f6ccefc9794766babb069707d82e.jpg)
+![输入图片说明](https://cyun-1300660186.file.myqcloud.com/image/1/2026/05/c20ed4c231507f211e82e5fc56fa5337.jpg)
 
 ## 技术栈
 
-- **后端框架**: BuildAdmin (基于ThinkPHP和Vue的CRUD快速开发框架)
-- **三维引擎**: Mars3D (强大的三维地球平台)
-- **云服务**: 大疆上云API (DJI Cloud API)
+- **后端技术栈**: 基于hyperf或Go的微服务框架（后续也将支持Java）
+- **后端技术栈**: VUE/webGL/three.js等
+- **三维引擎**:Cesium(强大的全球三维地球平台)
 - **主要功能**: 项目分区管理、设备监控、远程控制、可视化航线编辑、任务调度、数据导出
 
 ## 核心功能
@@ -28,12 +37,12 @@
 - **设备管理**：全面接入并管理大疆机场(Dock)及飞行器，实时查看设备状态、告警信息、机场及飞行器详请数据。
 
 ### 🛩 远程调度与控制
-- **多机型支持**：目前已支持大疆机场2 (Dock 2)、大疆机场3 (Dock 3) 的接入与管理，后续将扩展更多机型。
+- **多机型支持**：目前已支持大疆机场2 (Dock 2)、大疆机场3 (Dock 3) 、PX4云控盒子（内测中）的接入与管理，后续将扩展更多机型。
 - **远程运维**：可对远程机场进行重启、升级、参数配置等运维操作。
 - **一键指令**：支持任务一键下发、一键返航、紧急中止等快捷操作。
 
-### ✈️ Mars3D可视化任务编辑
-- **三维飞行空间**：基于Mars3D引擎提供强大的三维可视化航线编辑器，在地球上直接绘制、拖拽修改航线。
+### ✈️ Cesium可视化任务编辑
+- **三维飞行空间**：基于Cesium引擎提供强大的三维可视化航线编辑器，在地球上直接绘制、拖拽修改航线。
 - **丰富动作指令**：航线支持添加多种动作，包括：
     - 拍照、录像
     - 悬停等待
@@ -115,10 +124,11 @@
 
 欢迎提交 Issue 和 Pull Request！
 
--   **社区交流群**：请加群获取前端代码、数据库文件及详细开发文档。
-    ![NexusHive交流群](NexusHive%E4%BA%A4%E6%B5%81%E7%BE%A4.png)
+-   **社区交流群**：微信扫码，进入社群获取技术支持、前端代码、数据库文件及详细开发文档（注明来意）。
+-
+     ![输入图片说明](https://cyun-1300660186.file.myqcloud.com/image/1/2026/06/cb64531eda69b326355c9cab43c7d371.jpg)
 
--   **邮箱联系**：261003520@qq.com
+-   **邮箱联系**：871164797@qq.com
 ### 特别鸣谢
 - [Thinkphp](http://www.thinkphp.cn/)
 - [FastAdmin](https://gitee.com/karson/fastadmin)
@@ -149,4 +159,4 @@
 - [jetbrains](https://www.jetbrains.com/)
 ## 免责声明
 
-本项目是基于大疆云API进行的二次开发，使用时请遵守大疆的开发者协议及相关法律法规。开发者不对因使用本项目而产生的任何直接或间接损失负责。
+使用时请遵守相关法律法规。开发者不对因使用本项目而产生的任何直接或间接损失负责。

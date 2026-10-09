@@ -54,6 +54,12 @@
 ### 📊 数据与报告
 - **飞行记录导出**：一键导出完整的飞行任务记录与报告，便于后续分析与审计。
 - **设备告警历史**：查看所有设备的历史告警信息，助力设备健康管理。
+## Java 后端
+
+PHP 仍在仓库根目录。Java 实现在 [`java/`](java/README.md)，OpenJDK 17、Spring Boot 3.5.7。空库演示账号 `admin` / `NexusHive@123`，bcrypt 与部署步骤见 [java/README.md](java/README.md) 和 [java/DEPLOY.md](java/DEPLOY.md)。Docker 编排在 [`deploy/java/`](deploy/java/docker-compose.yml)。
+
+已编译前端 `public/assets` 写死了 MQTT / SRS 地址 `192.168.0.122`。后端环境变量改不了这个地址，说明见 [java/DEPLOY.md](java/DEPLOY.md)。
+
 ## 关于部署
 - **环境准备清单**： 
 
